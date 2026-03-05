@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fund Sentiment Planner"
+  short_description: "Plan and iterate a multi-source fund sentiment decision system"
+  default_prompt: "Use $fund-sentiment-trading-planner to plan or refine a fund sentiment trading project."
