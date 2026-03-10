@@ -15,7 +15,7 @@ def generate_daily_report(repo: StateRepository, date: str) -> DailyReport:
     lines.append("## 今日结论")
     for row in recommendations:
         lines.append(
-            f"- {row.fund_name}({row.fund_code or 'PENDING'}): {row.action.upper()} | confidence={row.confidence:.2f}"
+            f"- {row.fund_name}({row.fund_code or 'PENDING'}): {row.action.upper()} | confidence={row.confidence:.2f} | up={row.up_probability:.2f} | down={row.down_probability:.2f}"
         )
 
     lines.append("")
