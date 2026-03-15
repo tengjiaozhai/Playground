@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import os
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from .market_data import fetch_market_series
 from .models import BacktestFundMetric, BacktestRunResult
 from .repository import StateRepository
+
+
+class BacktestLiveDataError(RuntimeError):
+    def __init__(self, errors: list[dict[str, str]]) -> None:
+        self.errors = errors
+        super().__init__("live market data is required but unavailable")
 
 
 def _weighted(signal) -> float:
@@ -33,6 +40,7 @@ def _signal_daily_score(rows: list) -> dict[str, float]:
 
 
 def run_backtest(repo: StateRepository, window_days: int = 365) -> BacktestRunResult:
+    market_mode = os.getenv("MARKET_DATA_MODE", "auto").lower()
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=window_days)
     signals = [s for s in repo.list_signals() if s.publish_time >= since]
@@ -44,6 +52,7 @@ def run_backtest(repo: StateRepository, window_days: int = 365) -> BacktestRunRe
             by_symbol[sym].append(s)
 
     metrics: list[BacktestFundMetric] = []
+    live_errors: list[dict[str, str]] = []
     for p in portfolio:
         rows = sorted(by_symbol.get(p.fund_name, []) + by_symbol.get(p.fund_code, []), key=lambda x: x.publish_time)
         if len(rows) < 2:
@@ -57,6 +66,7 @@ def run_backtest(repo: StateRepository, window_days: int = 365) -> BacktestRunRe
                     recommendation_stability=1.0,
                     signal_latency_hours=24.0,
                     label_source="proxy",
+                    label_error="insufficient_signal",
                 )
             )
             continue
@@ -64,6 +74,14 @@ def run_backtest(repo: StateRepository, window_days: int = 365) -> BacktestRunRe
         daily_score = _signal_daily_score(rows)
         series = fetch_market_series(p.fund_code, days=window_days)
         nav_points = series.points
+        if market_mode == "live" and series.source != "eastmoney_live":
+            live_errors.append(
+                {
+                    "fund_name": p.fund_name,
+                    "fund_code": p.fund_code,
+                    "reason": f"label_source={series.source}",
+                }
+            )
 
         preds: list[int] = []
         actuals: list[int] = []
@@ -99,6 +117,7 @@ def run_backtest(repo: StateRepository, window_days: int = 365) -> BacktestRunRe
                     recommendation_stability=1.0,
                     signal_latency_hours=24.0,
                     label_source=series.source,
+                    label_error="no_aligned_samples",
                 )
             )
             continue
@@ -119,8 +138,12 @@ def run_backtest(repo: StateRepository, window_days: int = 365) -> BacktestRunRe
                 recommendation_stability=stability,
                 signal_latency_hours=round(sum(latencies) / len(latencies), 2) if latencies else 0.0,
                 label_source=series.source,
+                label_error="",
             )
         )
+
+    if market_mode == "live" and live_errors:
+        raise BacktestLiveDataError(live_errors)
 
     result = BacktestRunResult(
         run_id=now.strftime("backtest-%Y%m%d-%H%M%S"),

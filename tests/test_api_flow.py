@@ -51,6 +51,13 @@ def test_ingest_status_and_source_health() -> None:
     assert len(health_rows) >= 6
     assert all('source' in row and 'healthy' in row for row in health_rows)
 
+    llm_status = client.get('/system/llm-status')
+    assert llm_status.status_code == 200
+    body = llm_status.json()
+    assert 'enabled' in body
+    assert 'ready' in body
+    assert 'stage' in body
+
 
 def test_backtest_endpoints() -> None:
     client = TestClient(app)

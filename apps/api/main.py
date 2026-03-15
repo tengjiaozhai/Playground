@@ -6,9 +6,10 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from packages.common.backtest import run_backtest
+from packages.common.backtest import BacktestLiveDataError, run_backtest
 from packages.common.decision import run_decision
 from packages.common.ingest import run_ingest
+from packages.common.llm_assist import get_llm_status
 from packages.common.market_data import fetch_market_series
 from packages.common.pipeline import run_full_pipeline
 from packages.common.reporting import generate_daily_report
@@ -57,6 +58,11 @@ def sources_health() -> list[dict[str, Any]]:
     return [s.model_dump(mode="json") for s in repo.list_source_health()]
 
 
+@app.get("/system/llm-status")
+def system_llm_status() -> dict[str, Any]:
+    return get_llm_status()
+
+
 @app.get("/funds/{code_or_name}/signals")
 def fund_signals(code_or_name: str) -> list[dict[str, Any]]:
     signals = repo.list_signals()
@@ -97,7 +103,10 @@ def fund_market_history(code_or_name: str, days: int = 365) -> dict[str, Any]:
     series = fetch_market_series(code, days=days)
     return {
         "fund_code": series.fund_code,
+        "fund_name": series.fund_name,
         "source": series.source,
+        "source_url": series.source_url,
+        "fetched_at": series.fetched_at,
         "points": [{"date": p.date, "nav": p.nav} for p in series.points],
     }
 
@@ -178,7 +187,16 @@ def pipeline_run() -> dict[str, str | int]:
 
 @app.post("/backtest/run")
 def backtest_run(window_days: int = 365) -> dict[str, Any]:
-    result = run_backtest(repo, window_days=window_days)
+    try:
+        result = run_backtest(repo, window_days=window_days)
+    except BacktestLiveDataError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "MARKET_DATA_MODE=live 时要求真实净值标签，当前部分基金抓取失败",
+                "errors": exc.errors,
+            },
+        ) from exc
     return result.model_dump(mode="json")
 
 

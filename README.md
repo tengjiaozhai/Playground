@@ -68,6 +68,7 @@ python -m pytest -q
 - `POST /pipeline/run`
 - `POST /backtest/run`
 - `GET /backtest/metrics`
+- `GET /system/llm-status`
 
 ## 6. V2 实现说明（当前）
 
@@ -85,7 +86,7 @@ python -m pytest -q
 - 已支持市场标签模式：`MARKET_DATA_MODE=auto|proxy|live`（默认 `auto`）。
   - `auto`：优先真实净值，失败回退代理序列。
   - `proxy`：仅使用代理序列（适合测试）。
-  - `live`：只用真实净值，失败不回退。
+  - `live`：只用真实净值，失败不回退；回测接口会直接报错并返回失败基金原因。
 
 ## 7. 说明
 
@@ -116,5 +117,8 @@ MARKET_DATA_MODE=auto
 说明：
 - 默认关闭，不影响原有规则决策。
 - 开启后会在规则决策基础上追加 LLM 解释，并在高置信度场景允许微调动作。
+- DeepSeek 执行位置在“决策复核阶段”，流程是：`舆情汇总 -> 规则初判 -> DeepSeek 复核 -> 最终建议`。
+- 看板顶部会显式展示：大模型是否已开启、是否可调用、当前模型名，以及本轮有多少只基金经过了大模型复核。
 - 不要把真实 API Key 提交到 git；建议仅保存在本地 `.env`。
 - 仪表盘支持基金手动增删改，适合小规模人工维护持仓池。
+- 当 `MARKET_DATA_MODE=live` 回测失败时，仪表盘会展示失败基金与原因（而不是静默失败）。

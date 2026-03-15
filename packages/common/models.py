@@ -79,6 +79,12 @@ class DecisionOutput(BaseModel):
     counter_evidence: list[str]
     evidence_sources: list[str]
     conflict_summary: str
+    llm_used: bool = False
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_stage: str = ""
+    llm_explanation: str = ""
+    llm_risk_note: str = ""
     generated_at: datetime
 
 
@@ -137,6 +143,7 @@ class BacktestFundMetric(BaseModel):
     recommendation_stability: float = Field(ge=0.0, le=1.0)
     signal_latency_hours: float = Field(ge=0.0)
     label_source: str = "proxy"
+    label_error: str = ""
 
 
 class BacktestRunResult(BaseModel):

@@ -101,6 +101,12 @@ def run_decision(repo: StateRepository) -> DecisionRunResult:
             f"{s.source}:{s.polarity:.2f}" for s in sorted(related, key=lambda x: x.polarity)[:3]
         ]
         sources = sorted({s.source for s in related})
+        llm_used = False
+        llm_provider = ""
+        llm_model = ""
+        llm_stage = ""
+        llm_explanation = ""
+        llm_risk_note = ""
 
         if position.pending_code_binding:
             action = "watch"
@@ -129,14 +135,20 @@ def run_decision(repo: StateRepository) -> DecisionRunResult:
             }
             llm_result = assist_decision(llm_payload)
             if llm_result:
+                llm_used = True
+                llm_provider = str(llm_result.get("provider", "DeepSeek"))
+                llm_model = str(llm_result.get("model", ""))
+                llm_stage = str(llm_result.get("stage", "decision_review"))
                 # Keep base action unless model confidence is sufficiently strong.
                 if confidence >= 0.6:
                     action = llm_result.get("action", action)
                     target_position = _target_position(action)
                 confidence = max(0.0, min(0.99, confidence + float(llm_result.get("confidence_delta", 0.0))))
                 if llm_result.get("explanation"):
+                    llm_explanation = str(llm_result["explanation"])
                     reasons.append(f"llm_explanation={llm_result['explanation']}")
                 if llm_result.get("risk_note"):
+                    llm_risk_note = str(llm_result["risk_note"])
                     reasons.append(f"llm_risk_note={llm_result['risk_note']}")
 
         outputs.append(
@@ -155,6 +167,12 @@ def run_decision(repo: StateRepository) -> DecisionRunResult:
                 counter_evidence=counter_evidence,
                 evidence_sources=sources,
                 conflict_summary=conflict_summary,
+                llm_used=llm_used,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                llm_stage=llm_stage,
+                llm_explanation=llm_explanation,
+                llm_risk_note=llm_risk_note,
                 generated_at=now,
             )
         )
