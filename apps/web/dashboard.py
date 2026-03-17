@@ -59,17 +59,17 @@ def _parse_response(resp: requests.Response):
     return False, detail
 
 
-def safe_get(path: str, params: dict | None = None):
+def safe_get(path: str, params: dict | None = None, timeout: int = TIMEOUT):
     try:
-        resp = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=TIMEOUT)
+        resp = requests.get(f"{API_BASE_URL}{path}", params=params, timeout=timeout)
         return _parse_response(resp)
     except Exception as exc:
         return False, str(exc)
 
 
-def safe_post(path: str, params: dict | None = None):
+def safe_post(path: str, params: dict | None = None, timeout: int = TIMEOUT):
     try:
-        resp = requests.post(f"{API_BASE_URL}{path}", params=params, timeout=TIMEOUT)
+        resp = requests.post(f"{API_BASE_URL}{path}", params=params, timeout=timeout)
         return _parse_response(resp)
     except Exception as exc:
         return False, str(exc)
@@ -427,7 +427,8 @@ with st.container(border=True):
     with c1:
         if st.button("更新数据并刷新建议（推荐）", use_container_width=True):
             with st.spinner("正在汇总舆情，并用大模型复核基金建议，请稍等..."):
-                ok_pipeline, data = safe_post("/pipeline/run")
+                # Pipeline may take longer when LLM reviews multiple funds.
+                ok_pipeline, data = safe_post("/pipeline/run", timeout=180)
             if ok_pipeline:
                 st.success("更新完成，页面已使用最新数据。")
             else:
@@ -436,7 +437,7 @@ with st.container(border=True):
                     st.code(str(data))
     with c2:
         st.markdown(
-            "<div class='top-note'>系统会自动完成：采集信息 -> 生成建议 -> 更新日报</div>",
+            "<div class='top-note'>系统会自动完成：采集信息 -> 规则初判 -> DeepSeek复核 -> 更新日报（新增基金时可能需要 30-90 秒）</div>",
             unsafe_allow_html=True,
         )
 
@@ -452,7 +453,7 @@ with st.container(border=True):
         with a2:
             if st.button("仅重算建议", use_container_width=True):
                 with st.spinner("正在进入决策阶段，并尝试调用 DeepSeek 进行复核..."):
-                    ok_run, data = safe_post("/decision/run")
+                    ok_run, data = safe_post("/decision/run", timeout=120)
                 st.success("建议重算完成") if ok_run else st.warning("操作失败，请重试")
                 if not ok_run:
                     with st.expander("查看技术详情", expanded=False):
