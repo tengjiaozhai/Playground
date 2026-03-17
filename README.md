@@ -1,8 +1,36 @@
 # 基金舆情决策系统（Fund Sentiment Trading）
 
-一个基于 Python 的全栈项目，用于多源舆情驱动的基金涨跌推测与交易辅助决策。
+一个可直接运行的 Python 全栈项目：采集多源舆情 -> 生成基金建议 -> 输出看板与日报。支持规则决策，也支持 DeepSeek 在“决策复核阶段”参与辅助推理。
 
-## 1. 使用 Conda 创建与管理环境
+## 给其他大模型的快速上下文（可直接复制）
+
+```text
+你在维护一个 Python 项目：/Users/shenmingjie/Documents/Playground
+目标：多源舆情驱动的基金决策辅助（研究用途，不构成投资建议）
+
+关键入口：
+- API: apps/api/main.py (FastAPI, 8000)
+- Web: apps/web/dashboard.py (Streamlit, 8501)
+- 核心逻辑: packages/common/*
+
+核心流程：
+1) POST /ingest/run 采集舆情
+2) POST /decision/run 规则初判 + (可选) DeepSeek复核
+3) GET /portfolio/recommendations 查看建议
+4) GET /reports/daily?date=YYYY-MM-DD 查看日报
+5) POST /pipeline/run 一键跑全链路
+
+重要规则：
+- 基金必须 name+code 双主键
+- pending_code_binding=true 时禁止落地交易动作
+- 推荐结果必须带证据来源、冲突摘要、时间戳
+
+大模型状态：
+- GET /system/llm-status
+- 若 ENABLE_LLM_ASSIST=true 且 key 可用，则在 decision_review 阶段执行
+```
+
+## 1. 一次启动（Conda）
 
 ```bash
 cd /Users/shenmingjie/Documents/Playground
@@ -11,98 +39,55 @@ conda activate fund-sentiment-trading
 cp .env.example .env
 ```
 
-如果后续依赖有变化：
+依赖变化后可更新：
 
 ```bash
 conda env update -f environment.yml --prune
 ```
 
-## 2. 启动 API 服务
+## 2. 启动服务
 
-```bash
-conda activate fund-sentiment-trading
-uvicorn apps.api.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-启动后可访问：
-- 健康检查：[http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
-- Swagger 文档：[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-
-## 3. 启动 Web 看板（可选）
-
-新开一个终端：
+终端 A（API）：
 
 ```bash
 cd /Users/shenmingjie/Documents/Playground
 conda activate fund-sentiment-trading
-streamlit run apps/web/dashboard.py
+uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 ```
 
-默认访问：
-- [http://127.0.0.1:8501](http://127.0.0.1:8501)
-
-## 4. 运行测试
+终端 B（看板）：
 
 ```bash
 cd /Users/shenmingjie/Documents/Playground
 conda activate fund-sentiment-trading
-python -m pytest -q
+streamlit run apps/web/dashboard.py --server.address 0.0.0.0 --server.port 8501
 ```
 
-## 5. 当前已实现接口
+访问地址：
+- API 健康检查：[http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+- API 文档：[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- 看板：[http://127.0.0.1:8501](http://127.0.0.1:8501)
 
-- `POST /ingest/run`
-- `GET /ingest/status`
-- `GET /sources/health`
-- `GET /funds/{code_or_name}/signals`
-- `GET /funds/{code_or_name}/signal-daily`
-- `GET /funds/{code_or_name}/market-history`
-- `POST /decision/run`
-- `GET /portfolio/recommendations`
-- `GET /portfolio/positions`
-- `GET /funds/master`
-- `POST /funds/upsert`（新增或修改基金）
-- `PATCH /funds/position`（更新持仓份额与成本）
-- `DELETE /funds?fund_name=xxx`（删除基金）
-- `GET /reports/daily?date=YYYY-MM-DD`
-- `POST /pipeline/run`
-- `POST /backtest/run`
-- `GET /backtest/metrics`
-- `GET /system/llm-status`
+## 3. 3 分钟验收（最小可用）
 
-## 6. V2 实现说明（当前）
+```bash
+curl -X POST http://127.0.0.1:8000/pipeline/run
+curl http://127.0.0.1:8000/portfolio/recommendations
+curl "http://127.0.0.1:8000/reports/daily?date=$(date +%F)"
+```
 
-- 已实现六类数据源适配器：新闻、博客、天天基金、同花顺爱基金、东方财富、社媒。
-- 已实现统一采集协议字段：`source_id`、`publish_time`、`content`、`symbol_candidates`、`credibility_score`。
-- 已实现双重去重：`(source, source_id)` + `content_hash`。
-- 已实现特征层：`polarity`、`intensity`、`heat`、`spread_speed`、`credibility`、`relevance`、`conflict`。
-- 已实现采集状态与数据源健康查询接口。
-- 当前适配器为可替换的 V2 基线实现（Mock 适配器），便于后续接入真实站点抓取。
-- 已支持采集模式切换：`INGEST_ADAPTER_MODE=mock|live|hybrid`（默认 `hybrid`）。
-  - `mock`：稳定测试模式，不依赖外网。
-  - `live`：仅真实抓取，来源不可达时可能无数据。
-  - `hybrid`：优先真实抓取，失败自动回退到 mock。
-- 已在 live 模式接入站点专用解析器（标题/描述/关键词上下文）与抓取稳定性机制（重试、限流、熔断）。
-- 已支持市场标签模式：`MARKET_DATA_MODE=auto|proxy|live`（默认 `auto`）。
-  - `auto`：优先真实净值，失败回退代理序列。
-  - `proxy`：仅使用代理序列（适合测试）。
-  - `live`：只用真实净值，失败不回退；回测接口会直接报错并返回失败基金原因。
+如果你在看板点击“一键更新”，新增基金后可能需要 `30-90 秒`，这是正常现象（包含 DeepSeek 复核耗时）。
 
-## 7. 说明
+## 4. 环境变量（.env）
 
-- 系统输出仅用于研究与辅助决策，不构成投资建议。
-- 若基金处于 `pending_code_binding=true`，系统会阻断交易动作并降级为观望。
-- 每次功能实现完成后，需同步更新 `docs/实现说明.md`。
+基础：
 
-## 8. V3 当前能力
+```env
+INGEST_ADAPTER_MODE=hybrid
+MARKET_DATA_MODE=auto
+```
 
-- 决策结果已包含：上涨概率、下跌概率、波动强度、置信度。
-- 回测接口可输出：命中率、最大回撤、建议稳定性、信号延迟（按基金维度）。
-- 仪表盘已简化为三页签：投资建议、数据源与信号、回测结果。
-
-## 9. DeepSeek + LangChain 辅助分析（可选）
-
-在 `.env` 中配置：
+LLM 辅助（可选）：
 
 ```env
 ENABLE_LLM_ASSIST=true
@@ -110,15 +95,87 @@ DEEPSEEK_API_KEY=你的key
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 LLM_MAX_TOKENS=400
-INGEST_ADAPTER_MODE=hybrid
-MARKET_DATA_MODE=auto
 ```
 
 说明：
-- 默认关闭，不影响原有规则决策。
-- 开启后会在规则决策基础上追加 LLM 解释，并在高置信度场景允许微调动作。
-- DeepSeek 执行位置在“决策复核阶段”，流程是：`舆情汇总 -> 规则初判 -> DeepSeek 复核 -> 最终建议`。
-- 看板顶部会显式展示：大模型是否已开启、是否可调用、当前模型名，以及本轮有多少只基金经过了大模型复核。
-- 不要把真实 API Key 提交到 git；建议仅保存在本地 `.env`。
-- 仪表盘支持基金手动增删改，适合小规模人工维护持仓池。
-- 当 `MARKET_DATA_MODE=live` 回测失败时，仪表盘会展示失败基金与原因（而不是静默失败）。
+- `INGEST_ADAPTER_MODE`: `mock|live|hybrid`
+- `MARKET_DATA_MODE`: `proxy|live|auto`
+- `ENABLE_LLM_ASSIST=false` 时，系统只用规则引擎
+- LLM 开启后执行位置是 `decision_review`（规则初判后复核）
+
+## 5. API 速查
+
+全链路：
+- `POST /pipeline/run`
+
+采集与信号：
+- `POST /ingest/run`
+- `GET /ingest/status`
+- `GET /sources/health`
+- `GET /funds/{code_or_name}/signals`
+- `GET /funds/{code_or_name}/signal-daily`
+- `GET /funds/{code_or_name}/market-history`
+
+决策与持仓：
+- `POST /decision/run`
+- `GET /portfolio/recommendations`
+- `GET /portfolio/positions`
+- `GET /funds/master`
+- `POST /funds/upsert`
+- `PATCH /funds/position`
+- `DELETE /funds?fund_name=xxx`
+- `POST /portfolio/bind-code`
+
+回测与报告：
+- `POST /backtest/run`
+- `GET /backtest/metrics`
+- `GET /reports/daily?date=YYYY-MM-DD`
+
+系统状态：
+- `GET /health`
+- `GET /system/llm-status`
+
+## 6. 常见问题
+
+Q: 看板提示“一键更新失败”，但 API 其实成功了？  
+A: 通常是前端请求超时。当前已把长流程超时放宽；若仍偶发，先看 `POST /pipeline/run` 是否返回 200，再看日志。
+
+Q: 为什么净值有时显示到昨天？  
+A: 不同上游更新时间不同。系统会优先选择“最近交易日更晚”的来源；如仍异常，检查 `market-history` 返回的 `source/source_url/fetched_at`。
+
+Q: 如何判断大模型是否真的参与？  
+A: 先看 `GET /system/llm-status` 的 `ready`，再看建议字段里的 `llm_used/llm_model/llm_explanation`。
+
+## 7. 目录速览
+
+```text
+apps/
+  api/        # FastAPI 接口
+  web/        # Streamlit 看板
+  worker/     # 任务与调度
+packages/
+  common/     # 决策、采集、回测、模型定义
+docs/
+  计划版本.md
+  实现说明.md
+skills/
+  fund-sentiment-trading-planner/
+```
+
+## 8. 开发规范与文档
+
+- 每次功能实现后都要追加 [实现说明.md](/Users/shenmingjie/Documents/Playground/docs/实现说明.md)
+- 版本阶段与里程碑维护在 [计划版本.md](/Users/shenmingjie/Documents/Playground/docs/计划版本.md)
+- 如修改决策/回测口径，先同步 skill 参考文档再改代码
+
+## 9. 测试
+
+```bash
+cd /Users/shenmingjie/Documents/Playground
+conda activate fund-sentiment-trading
+pytest -q
+```
+
+## 10. 风险提示
+
+本项目输出仅用于研究与辅助决策，不构成投资建议。实盘请自行做风险评估并保留人工确认环节。
